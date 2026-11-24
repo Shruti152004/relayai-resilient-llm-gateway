@@ -7,10 +7,10 @@ A resilient LLM gateway featuring API key failover, intelligent response caching
 ---
 
 ## 1. Live URLs
-* **Frontend Application:** *[Deployment URL to be inserted upon deployment]*
-* **Backend API Gateway:** *[Deployment URL to be inserted upon deployment]*
-* **Interactive API Documentation:** *[Backend URL]/docs*
-* **Health Endpoint:** *[Backend URL]/health*
+- **Frontend Application:** https://relayai-frontend.onrender.com
+- **Backend API Gateway:** https://relayai-backend-z6pw.onrender.com
+- **Interactive API Documentation:** https://relayai-backend-z6pw.onrender.com/docs
+- **Health Endpoint:** https://relayai-backend-z6pw.onrender.com/health
 
 ---
 
@@ -102,10 +102,15 @@ npm run dev -- --port 3000
 * The original provider-reported `input_tokens` and `output_tokens` are preserved from the cached response object without heuristics or estimation.
 
 ### SQLite Multi-Turn Storage & Volume Persistence
-* Storage is managed through two tables: `sessions` (holding active system prompts per session) and `messages` (holding chronological user and assistant records).
-* System prompts are persisted across subsequent turns but excluded from public history endpoints (`GET /sessions/{session_id}/messages`).
-* Write-Ahead Logging (`PRAGMA journal_mode=WAL;`) and foreign key constraints (`PRAGMA foreign_keys=ON;`) are activated on startup.
-* Mounted to a named Docker volume (`lyftra_sqlite_data` mapped to `/data`) so database state persists across container stop, removal, and recreation.
+* **Schema & Engine:** Storage is managed through two relational tables: `sessions` (holding active system prompts per session) and `messages` (holding chronological user and assistant records). Write-Ahead Logging (`PRAGMA journal_mode=WAL;`) and foreign key constraints (`PRAGMA foreign_keys=ON;`) are activated on startup.
+* **System Prompt Isolation:** System prompts are persisted per session for subsequent conversation context but excluded from public history endpoints (`GET /sessions/{session_id}/messages`).
+* **Local Docker Volume Persistence (Verified):** The application database is configured at `/data/app.db`. In `docker-compose.yml`, this path is mounted to a dedicated named volume (`lyftra_sqlite_data` mapped to `/data`). Database state strictly persists across container stopping, container removal (`docker compose down`), and container recreation (`docker compose up -d`), as verified with session `s-docker-persist`.
+* **Cloud Deployment Storage Model (Render Free Tier):**
+  * The cloud deployment is hosted on Render's Free tier.
+  * Render Free Web Services operate on an **ephemeral container filesystem**. Render's platform architecture does not support persistent disks on the Free plan (persistent disks require a paid Starter plan of $7/mo + $0.25/GB/mo).
+  * Consequently, cloud-deployed SQLite data is ephemeral: it is retained during active runtime but resets when the free container automatically spins down after 15 minutes of inactivity, restarts, or redeploys.
+  * In strict adherence to assignment requirements requiring pure SQLite (without external database add-ons like PostgreSQL, Redis, or cloud storage daemons), cloud persistence is transparently bound to Render's free-tier filesystem characteristics.
+  * Full, verified persistence across the tested Docker container recreation is operational via the local Docker Compose environment.
 
 ---
 
@@ -161,6 +166,23 @@ Retrieve full chronological history:
 ```bash
 curl http://localhost:8000/sessions/s-cosmos-1/messages
 ```
+
+### 5. Test SQLite Named-Volume Persistence Across Container Recreation (Local Docker)
+
+Demonstrate that conversation history survives container teardown and recreation:
+
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "s-docker-persist", "message": "Ping from Docker container test"}'
+
+docker compose down
+docker compose up -d
+
+curl http://localhost:8000/sessions/s-docker-persist/messages
+```
+
+**Expected Result:** HTTP 200 returning the intact conversation history (`s-docker-persist` containing both user and assistant messages) directly from the mounted `/data/app.db` volume. Verified that the tested session history survived container removal and recreation.
 
 ---
 
