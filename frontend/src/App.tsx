@@ -1,16 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ChatMessage, HealthResponse } from './types/chat';
 import { sendChatMessage, getHealth, ApiError } from './services/api';
+import { Sidebar } from './components/Sidebar';
 import { MessageList } from './components/MessageList';
 import { ChatInput } from './components/ChatInput';
 import { SystemPromptInput } from './components/SystemPromptInput';
 import { SimulationControls } from './components/SimulationControls';
 import {
-  Bot,
   RotateCcw,
   Sparkles,
   AlertCircle,
   Terminal,
+  Sliders,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 const generateSessionId = (): string => {
@@ -19,14 +22,18 @@ const generateSessionId = (): string => {
 
 export const App: React.FC = () => {
   const [sessionId, setSessionId] = useState<string>(generateSessionId);
+  const [sessionList, setSessionList] = useState<string[]>(() => [sessionId]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [systemPrompt, setSystemPrompt] = useState<string>('');
   const [simulationScenario, setSimulationScenario] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+  const [isPromptDrawerOpen, setIsPromptDrawerOpen] = useState<boolean>(false);
+  const [suggestedPrompt, setSuggestedPrompt] = useState<string>('');
 
-  // Poll or check health on initial mount
+  // Initial health check
   useEffect(() => {
     let mounted = true;
     getHealth()
@@ -34,7 +41,7 @@ export const App: React.FC = () => {
         if (mounted) setHealth(data);
       })
       .catch((_) => {
-        // Backend might still be starting; non-blocking
+        // Backend non-blocking check
       });
     return () => {
       mounted = false;
@@ -44,9 +51,20 @@ export const App: React.FC = () => {
   const handleStartNewSession = useCallback(() => {
     const newId = generateSessionId();
     setSessionId(newId);
+    setSessionList((prev) => (prev.includes(newId) ? prev : [newId, ...prev]));
     setMessages([]);
     setError(null);
+    setSuggestedPrompt('');
   }, []);
+
+  const handleSelectSession = useCallback((id: string) => {
+    setSessionId(id);
+    setError(null);
+  }, []);
+
+  const handleSelectPrompt = (prompt: string) => {
+    setSuggestedPrompt(prompt);
+  };
 
   const handleSendMessage = async (text: string) => {
     if (!text.trim() || loading) return;
@@ -61,6 +79,7 @@ export const App: React.FC = () => {
     setMessages((prev) => [...prev, userMessage]);
     setLoading(true);
     setError(null);
+    setSuggestedPrompt('');
 
     try {
       const response = await sendChatMessage(
@@ -104,107 +123,136 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen w-full bg-slate-950 text-slate-100 font-sans antialiased">
-      {/* Top Navigation Bar */}
-      <header className="h-16 border-b border-slate-800 bg-slate-900/80 backdrop-blur-md px-4 sm:px-6 flex items-center justify-between shrink-0 z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-600 to-sky-500 flex items-center justify-center text-white shadow-md shadow-cyan-900/30">
-            <Bot className="w-5 h-5" />
-          </div>
-          <div>
+    <div className="flex h-screen w-full bg-[#FAF8F5] text-slate-800 font-sans antialiased overflow-hidden">
+      {/* Slim Vertical Sidebar */}
+      <Sidebar
+        isOpen={isSidebarOpen}
+        onToggle={() => setIsSidebarOpen((prev) => !prev)}
+        currentSessionId={sessionId}
+        sessionList={sessionList}
+        onSelectSession={handleSelectSession}
+        onNewSession={handleStartNewSession}
+        health={health}
+        onOpenSettings={() => setIsPromptDrawerOpen((prev) => !prev)}
+        isSettingsOpen={isPromptDrawerOpen}
+      />
+
+      {/* Main App Container */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden bg-gradient-to-br from-[#FAF8F5] via-[#FFFDFB] to-[#F5F2F9]">
+        {/* Top Header Bar */}
+        <header className="h-16 border-b border-[#EFEAE6]/90 bg-white/70 backdrop-blur-xl px-4 sm:px-6 flex items-center justify-between shrink-0 z-10">
+          <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
-              <h1 className="font-bold text-sm sm:text-base text-slate-100 tracking-tight flex items-center gap-1.5">
+              <span className="font-bold text-sm text-slate-800 tracking-tight">
                 RelayAI
-              </h1>
-              <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-semibold tracking-wide px-2 py-0.5 rounded-full bg-cyan-950/80 text-cyan-400 border border-cyan-800/60">
-                <Sparkles className="w-3 h-3" /> AI, without the interruption.
+              </span>
+              <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200/60">
+                <Sparkles className="w-3 h-3 text-purple-500" /> AI, without the interruption.
               </span>
             </div>
-            <div className="flex items-center gap-2 text-xs text-slate-400">
-              <span className="font-mono text-[11px] text-slate-300">
-                Session: <span className="text-cyan-300 font-medium">{sessionId}</span>
-              </span>
-              {health && (
-                <span className="hidden md:inline-flex items-center gap-1 text-[11px] text-emerald-400">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  {health.keys_configured} Keys Active
-                </span>
-              )}
-            </div>
+
+            <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white border border-slate-200/80 text-[11px] font-mono text-slate-600 shadow-2xs">
+              <span className="text-slate-400">Session:</span>
+              <span className="text-purple-700 font-semibold">{sessionId}</span>
+            </span>
           </div>
-        </div>
 
-        <div className="flex items-center gap-3">
-          {/* Failure Simulation Header Dropdown */}
-          <SimulationControls
-            scenario={simulationScenario}
-            onScenarioChange={setSimulationScenario}
-            disabled={loading}
-          />
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Failure Simulation Test Hook Header Dropdown */}
+            <SimulationControls
+              scenario={simulationScenario}
+              onScenarioChange={setSimulationScenario}
+              disabled={loading}
+            />
 
-          {/* New Session Button */}
-          <button
-            type="button"
-            onClick={handleStartNewSession}
-            disabled={loading}
-            title="Start a new session (resets conversation history and generates fresh session ID)"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 active:bg-slate-600 border border-slate-700 text-slate-300 hover:text-white text-xs font-medium transition-all shadow-sm disabled:opacity-50"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-slate-400 group-hover:rotate-180 transition-transform" />
-            <span className="hidden sm:inline">New Session</span>
-          </button>
-        </div>
-      </header>
-
-      {/* Main Container */}
-      <main className="flex-1 flex flex-col max-w-4xl w-full mx-auto overflow-hidden p-2 sm:p-4">
-        {/* Session System Prompt Configuration Accordion */}
-        <div className="mb-2 shrink-0">
-          <SystemPromptInput
-            systemPrompt={systemPrompt}
-            onSystemPromptChange={setSystemPrompt}
-            disabled={loading}
-          />
-        </div>
-
-        {/* Global Error Banner */}
-        {error && (
-          <div className="mb-2 p-3 bg-red-950/60 border border-red-500/50 rounded-xl text-red-200 text-xs flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-              <span>{error}</span>
-            </div>
+            {/* System Prompt Toggle Pill */}
             <button
-              onClick={() => setError(null)}
-              className="text-red-400 hover:text-red-200 text-xs font-semibold underline ml-2"
+              type="button"
+              onClick={() => setIsPromptDrawerOpen((prev) => !prev)}
+              title="Toggle System Prompt Drawer"
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition-all ${
+                isPromptDrawerOpen || systemPrompt
+                  ? 'bg-purple-50 border-purple-200 text-purple-700 shadow-xs'
+                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
             >
-              Dismiss
+              <Sliders className="w-3.5 h-3.5 text-purple-500" />
+              <span className="hidden sm:inline">Persona</span>
+              {isPromptDrawerOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+
+            {/* New Session Quick Button */}
+            <button
+              type="button"
+              onClick={handleStartNewSession}
+              disabled={loading}
+              title="Start a new session"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-medium transition-all shadow-2xs disabled:opacity-50"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
+              <span className="hidden sm:inline">New Session</span>
             </button>
           </div>
-        )}
+        </header>
 
-        {/* Message Area */}
-        <div className="flex-1 overflow-hidden bg-slate-900/40 border border-slate-800/80 rounded-2xl flex flex-col shadow-inner backdrop-blur-sm">
-          <MessageList messages={messages} loading={loading} />
-        </div>
-
-        {/* Chat Input Area */}
-        <div className="mt-3 shrink-0">
-          <ChatInput onSendMessage={handleSendMessage} disabled={loading} />
-          <div className="mt-1.5 flex items-center justify-between px-1 text-[11px] text-slate-500">
-            <span className="flex items-center gap-1">
-              <Terminal className="w-3 h-3 text-slate-600" />
-              LiteLLM Proxy &bull; Cache Aware &bull; Zero Token Estimation
-            </span>
-            <span className="font-mono text-[10px]">
-              Turn: {messages.filter((m) => m.role === 'user').length}
-            </span>
+        {/* Central Chat & Messages Area */}
+        <main className="flex-1 flex flex-col w-full max-w-4xl mx-auto overflow-hidden px-3 sm:px-6 pt-3 pb-2 relative">
+          {/* System Prompt Accordion / Card (Always kept in DOM for required testid contract) */}
+          <div className={`mb-3 shrink-0 transition-all ${isPromptDrawerOpen ? 'block' : 'hidden md:block'}`}>
+            <SystemPromptInput
+              systemPrompt={systemPrompt}
+              onSystemPromptChange={setSystemPrompt}
+              disabled={loading}
+            />
           </div>
-        </div>
-      </main>
+
+          {/* Global Error Notification */}
+          {error && (
+            <div className="mb-3 p-3.5 bg-rose-50/90 border border-rose-200 rounded-2xl text-rose-800 text-xs flex items-center justify-between shrink-0 shadow-sm">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+                <span>{error}</span>
+              </div>
+              <button
+                onClick={() => setError(null)}
+                className="text-rose-600 hover:text-rose-800 text-xs font-semibold underline ml-2"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {/* Central Message Stream */}
+          <div className="flex-1 overflow-hidden bg-white/70 backdrop-blur-md border border-[#EFEAE6] rounded-3xl flex flex-col shadow-[0_8px_30px_rgba(0,0,0,0.02)]">
+            <MessageList
+              messages={messages}
+              loading={loading}
+              onSelectPrompt={handleSelectPrompt}
+            />
+          </div>
+
+          {/* Floating Rounded Input Composer */}
+          <div className="mt-3 shrink-0">
+            <ChatInput
+              onSendMessage={handleSendMessage}
+              disabled={loading}
+              initialValue={suggestedPrompt}
+            />
+
+            <div className="mt-2 flex items-center justify-between px-2 text-[11px] text-slate-400">
+              <span className="flex items-center gap-1.5">
+                <Terminal className="w-3 h-3 text-slate-400" />
+                <span>LiteLLM Proxy &bull; Cache Aware &bull; Zero Token Estimation</span>
+              </span>
+              <span className="font-mono text-[10px] text-slate-500">
+                Turn {messages.filter((m) => m.role === 'user').length}
+              </span>
+            </div>
+          </div>
+        </main>
+      </div>
     </div>
   );
 };
 
 export default App;
-
